@@ -451,5 +451,119 @@ class EmptyRecordDeterminismTest(unittest.TestCase):
         _assert_reward_stable(self, reward.reward_fn, record, expected=-1.0)
 
 
+class LargeScaleGeneratedDeterminismTest(unittest.TestCase):
+    """Use dataset generators to create many test cases and verify each is deterministic.
+
+    Each generator (shopping, tictactoe, codebreaker, duelgrid) produces N records
+    with the same seed, ensuring reproducibility. For each generated record we call
+    the reward function twice and confirm the outputs match.
+    """
+
+    LARGE_N = 100  # Number of generated test cases per category
+
+    @unittest.skipUnless(sys.version_info >= (3, 10), "codebreaker uses zip(strict=True)")
+    def test_codebreaker_generated_is_deterministic(self):
+        """100 generated shopping tasks should all produce deterministic rewards."""
+
+        # Import generator dynamically
+        sys.path.insert(0, str(EXAMPLES / "agentic" / "shopping"))
+        try:
+            import dataset_generator
+        finally:
+            sys.path.remove(str(EXAMPLES / "agentic" / "shopping"))
+            sys.modules.pop("dataset_generator", None)
+
+        # Generate 100 shopping tasks with fixed seed
+        records = dataset_generator.generate_records(self.LARGE_N, seed=2026)
+        reward = _load_reward(EXAMPLES / "agentic" / "shopping")
+
+        for rec in records:
+            record = SimpleNamespace(source_record=rec, tool_calls=[])
+            _assert_reward_stable(self, reward.reward_fn, record)
+
+    def test_tictactoe_generated_is_deterministic(self):
+        """100 generated Tic-Tac-Toe boards should all produce deterministic rewards."""
+
+        # First import game to ensure constants are loaded
+        sys.path.insert(0, str(EXAMPLES / "agentic" / "tictactoe"))
+        try:
+            import game as tictactoe_game
+            import dataset_generator
+        finally:
+            sys.path.remove(str(EXAMPLES / "agentic" / "tictactoe"))
+            sys.modules.pop("game", None)
+            sys.modules.pop("dataset_generator", None)
+
+        records = dataset_generator.generate_records(self.LARGE_N, seed=2026)
+        reward = _load_reward(EXAMPLES / "agentic" / "tictactoe")
+
+        for rec in records:
+            record = SimpleNamespace(
+                source_record={"board": rec["board"]},
+                completion="<move>1</move>",
+                tool_calls=[{"name": "choose_square", "arguments": {"square": 1}}],
+            )
+            # Just verify it's deterministic (score can vary by board)
+            _assert_reward_stable(self, reward.reward_fn, record)
+
+    @unittest.skipUnless(sys.version_info >= (3, 10), "codebreaker uses zip(strict=True)")
+    def test_codebreaker_generated_is_deterministic(self):
+        """100 generated codebreaker tasks should all produce deterministic rewards."""
+
+        sys.path.insert(0, str(EXAMPLES / "agentic" / "codebreaker"))
+        try:
+            import game as cb_game
+            import dataset_generator
+        finally:
+            sys.path.remove(str(EXAMPLES / "agentic" / "codebreaker"))
+            sys.modules.pop("game", None)
+            sys.modules.pop("dataset_generator", None)
+
+        records = dataset_generator.generate_records(self.LARGE_N, seed=2026)
+        reward = _load_reward(EXAMPLES / "agentic" / "codebreaker")
+
+        for rec in records:
+            record = SimpleNamespace(
+                source_record={"secret": rec["secret"], "max_guesses": 6},
+                tool_calls=[{"name": "guess_code", "arguments": json.dumps({"code": rec["secret"]})}],
+            )
+            _assert_reward_stable(self, reward.reward_fn, record, expected=1.0)
+
+    def test_duelgrid_generated_is_deterministic(self):
+        """100 generated duelgrid tasks should all produce deterministic rewards."""
+
+        sys.path.insert(0, str(EXAMPLES / "agentic" / "duelgrid"))
+        try:
+            import game as dg_game
+            import dataset_generator
+        finally:
+            sys.path.remove(str(EXAMPLES / "agentic" / "duelgrid"))
+            sys.modules.pop("game", None)
+            sys.modules.pop("dataset_generator", None)
+
+        records = dataset_generator.generate_records(self.LARGE_N, seed=2026)
+        reward = _load_reward(EXAMPLES / "agentic" / "duelgrid")
+
+        for rec in records:
+            # Wrap record in "state" key as expected by duelgrid reward
+            state_dict = {
+                "map": rec["map"],
+                "agent_hp": rec["agent_hp"],
+                "user_hp": rec["user_hp"],
+                "agent_energy": rec["agent_energy"],
+                "user_energy": rec["user_energy"],
+                "agent_max_energy": rec["agent_max_energy"],
+                "user_max_energy": rec["user_max_energy"],
+                "turn": rec["turn"],
+                "max_turns": rec["max_turns"],
+            }
+            record = SimpleNamespace(
+                source_record={"state": state_dict},
+                completion="",
+                tool_calls=[{"name": "choose_action", "arguments": {"actions": [rec["best_action"]]}}],
+            )
+            _assert_reward_stable(self, reward.reward_fn, record)
+
+
 if __name__ == "__main__":
     unittest.main()
