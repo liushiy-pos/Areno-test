@@ -19,6 +19,24 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+# ── Helper: load a plain Python file without installing its package ──────────
+# Used by ComputeGroupAdvantagesDeterminismTest so it can import
+# `compute_group_advantages` without a full `pip install -e .`.
+_REWARDS_MODULE: object | None = None
+
+
+def _load_rewards_module():
+    """Lazily load ``areno/api/rewards.py`` by file path."""
+    global _REWARDS_MODULE
+    if _REWARDS_MODULE is not None:
+        return _REWARDS_MODULE
+    path = REPO_ROOT / "areno" / "api" / "rewards.py"
+    spec = importlib.util.spec_from_file_location("_det_rewards", path)
+    assert spec is not None and spec.loader is not None
+    _REWARDS_MODULE = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_REWARDS_MODULE)
+    return _REWARDS_MODULE
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
 N_CALLS = 10  # Same input, repeated calls; reward must be stable.
@@ -348,7 +366,8 @@ class ComputeGroupAdvantagesDeterminismTest(unittest.TestCase):
     def test_advantages_are_deterministic(self):
         """The same reward list should produce the same advantage list each call."""
 
-        from areno.api.rewards import compute_group_advantages
+        rewards_mod = _load_rewards_module()
+        compute_group_advantages = rewards_mod.compute_group_advantages
 
         rewards = [1.0, 2.0, 3.0, 4.0, 5.0]
         outputs = [compute_group_advantages(rewards) for _ in range(N_CALLS)]
@@ -362,7 +381,8 @@ class ComputeGroupAdvantagesDeterminismTest(unittest.TestCase):
     def test_advantages_constant_rewards_are_deterministic(self):
         """Constant rewards should always produce all-zero advantages."""
 
-        from areno.api.rewards import compute_group_advantages
+        rewards_mod = _load_rewards_module()
+        compute_group_advantages = rewards_mod.compute_group_advantages
 
         outputs = [compute_group_advantages([3.0, 3.0, 3.0]) for _ in range(N_CALLS)]
         first = outputs[0]
