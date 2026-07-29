@@ -8,6 +8,10 @@ randomness, time-based logic, or unordered iteration into a reward path.
 
 These tests are intentionally side-effect-free: they do not modify any reward
 implementation, only exercise it.
+
+Note: ComputeGroupAdvantagesDeterminismTest loads ``compute_group_advantages``
+by file path (``_load_rewards_module``) so it does not require ``pip install -e .``.
+All other tests load example reward functions by file path too.
 """
 
 from __future__ import annotations
