@@ -99,19 +99,28 @@ def _assert_reward_stable(test_case: unittest.TestCase, reward_fn, record, expec
     Each call result is validated as a numeric type before conversion to float,
     guarding against reward functions that accidentally return ``None`` or
     non-numeric values.
+
+    On failure the full list of returned values is included in the assertion
+    message so the developer can see *which* call(s) deviated.
     """
 
     outputs = []
-    for _ in range(N_CALLS):
+    for i in range(N_CALLS):
         result = reward_fn(record)
-        test_case.assertIsInstance(result, (int, float), f"reward_fn returned non-numeric type: {type(result)}")
+        test_case.assertIsInstance(
+            result, (int, float),
+            f"reward_fn returned non-numeric type: {type(result)} at call {i}",
+        )
         outputs.append(float(result))
-    test_case.assertEqual(len(outputs), N_CALLS)
     first = outputs[0]
-    for value in outputs[1:]:
-        test_case.assertEqual(value, first)
+    for i, value in enumerate(outputs[1:], 1):
+        test_case.assertEqual(
+            value, first,
+            f"Call {i} returned {value}, call 0 returned {first}; "
+            f"all {N_CALLS} outputs: {outputs}",
+        )
     if expected is not None:
-        test_case.assertEqual(first, expected)
+        test_case.assertEqual(first, expected, f"Expected {expected}, got {first}; all outputs: {outputs}")
 
 
 class MathRewardDeterminismTest(unittest.TestCase):
@@ -364,6 +373,89 @@ class ShoppingRewardDeterminismTest(unittest.TestCase):
     sys.version_info >= (3, 10),
     "areno.api uses dataclass(slots=True), requires Python 3.10+",
 )
+class RewardRecordRewardDeterminismTest(unittest.TestCase):
+    """Use the real :class:`RewardRecord` (Pydantic) instead of
+    ``SimpleNamespace`` to exercise the same code path as production.
+
+    The example ``reward_fn`` functions only access ``source_record``,
+    ``tool_calls``, ``tool_results``, and ``completion`` — all of which
+    are fields on ``RewardRecord`` — so substituting the real type should
+    produce identical results.
+    """
+
+    def test_tictactoe_with_reward_record_is_deterministic(self):
+        """Tic-Tac-Toe tool reward with real RewardRecord must be stable."""
+
+        rewards_mod = _load_rewards_module()
+        make_reward_record = rewards_mod.make_reward_record
+
+        reward = _load_reward(EXAMPLES / "agentic" / "tictactoe")
+        board = [["X", "X", "."], ["O", ".", "."], ["O", ".", "."]]
+        record = make_reward_record(
+            prompt="Play tic-tac-toe.",
+            completion="<move>3</move>",
+            source_record={"board": board},
+        )
+        record.tool_calls = [{"name": "choose_square", "arguments": {"square": 3}}]
+        _assert_reward_stable(self, reward.reward_fn, record, expected=1.0)
+
+    def test_coding_with_reward_record_is_deterministic(self):
+        """Coding reward with real RewardRecord must be stable."""
+
+        rewards_mod = _load_rewards_module()
+        make_reward_record = rewards_mod.make_reward_record
+
+        reward = _load_reward(EXAMPLES / "agentic" / "coding")
+        record = make_reward_record(
+            prompt="Solve the coding problem.",
+            completion="",
+            source_record={"test_commands": ["pytest tests/"]},
+        )
+        record.tool_calls = [
+            {"name": "apply_patch", "arguments": "{}"},
+            {"name": "submit", "arguments": json.dumps({"status": "solved"})},
+        ]
+        record.tool_results = [
+            {"content": json.dumps({"command": "pytest tests/", "returncode": 0})},
+        ]
+        _assert_reward_stable(self, reward.reward_fn, record, expected=1.0)
+
+    def test_shopping_with_reward_record_is_deterministic(self):
+        """Shopping reward with real RewardRecord must be stable."""
+
+        rewards_mod = _load_rewards_module()
+        make_reward_record = rewards_mod.make_reward_record
+
+        reward = _load_reward(EXAMPLES / "agentic" / "shopping")
+        game = _load_reward(EXAMPLES / "agentic" / "shopping", module_name="game")
+        source = {
+            "kit_name": "rain commute",
+            "categories": ["jacket", "bottle"],
+            "budget": 140,
+            "required_features_by_category": {
+                "jacket": ["waterproof", "packable"],
+                "bottle": ["insulated", "leakproof"],
+            },
+        }
+        best = game.best_bundle(source)
+        record = make_reward_record(
+            prompt="Buy the best bundle.",
+            completion="",
+            source_record=source,
+        )
+        record.tool_calls = [
+            {"name": "search_catalog", "arguments": json.dumps({"categories": best, "max_price": 140})},
+            {"name": "inspect_items", "arguments": json.dumps({"item_ids": best})},
+            {"name": "check_kit", "arguments": json.dumps({"item_ids": best})},
+            {"name": "submit_bundle", "arguments": json.dumps({"item_ids": best})},
+        ]
+        _assert_reward_stable(self, reward.reward_fn, record, expected=1.0)
+
+
+@unittest.skipUnless(
+    sys.version_info >= (3, 10),
+    "areno.api uses dataclass(slots=True), requires Python 3.10+",
+)
 class ComputeGroupAdvantagesDeterminismTest(unittest.TestCase):
     """Core helper: ``compute_group_advantages`` must be stable for the same rewards."""
 
@@ -393,6 +485,32 @@ class ComputeGroupAdvantagesDeterminismTest(unittest.TestCase):
         for value in outputs[1:]:
             self.assertEqual(value, first)
         self.assertEqual(first, [0.0, 0.0, 0.0])
+
+
+class MultiTurnCodingDeterminismTest(unittest.TestCase):
+    """Multi-turn coding trajectory: many tool calls should still be stable."""
+
+    def test_multi_turn_coding_is_deterministic(self):
+        """A 10-turn coding trajectory should always produce the same reward."""
+
+        reward = _load_reward(EXAMPLES / "agentic" / "coding")
+        tool_calls = []
+        tool_results = []
+        for i in range(5):
+            tool_calls.append({"name": "apply_patch", "arguments": "{}"})
+            tool_results.append(
+                {"content": json.dumps({"command": f"pytest tests/{i}", "returncode": 0})}
+            )
+        # Final submit
+        tool_calls.append({"name": "submit", "arguments": json.dumps({"status": "solved"})})
+        tool_results.append({"content": ""})
+
+        record = SimpleNamespace(
+            source_record={"test_commands": [f"pytest tests/{i}" for i in range(5)]},
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+        )
+        _assert_reward_stable(self, reward.reward_fn, record, expected=1.0)
 
 
 class EmptyRecordDeterminismTest(unittest.TestCase):
