@@ -461,8 +461,7 @@ class LargeScaleGeneratedDeterminismTest(unittest.TestCase):
 
     LARGE_N = 100  # Number of generated test cases per category
 
-    @unittest.skipUnless(sys.version_info >= (3, 10), "codebreaker uses zip(strict=True)")
-    def test_codebreaker_generated_is_deterministic(self):
+    def test_shopping_generated_is_deterministic(self):
         """100 generated shopping tasks should all produce deterministic rewards."""
 
         # Import generator dynamically
