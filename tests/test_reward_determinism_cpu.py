@@ -390,6 +390,8 @@ class RewardRecordRewardDeterminismTest(unittest.TestCase):
         """Tic-Tac-Toe tool reward with real RewardRecord must be stable."""
 
         rewards_mod = _load_rewards_module()
+        # Ensure RewardRecord is fully defined for Pydantic v2
+        rewards_mod.RewardRecord.model_rebuild()
         make_reward_record = rewards_mod.make_reward_record
 
         reward = _load_reward(EXAMPLES / "agentic" / "tictactoe")
@@ -406,6 +408,8 @@ class RewardRecordRewardDeterminismTest(unittest.TestCase):
         """Coding reward with real RewardRecord must be stable."""
 
         rewards_mod = _load_rewards_module()
+        # Ensure RewardRecord is fully defined for Pydantic v2
+        rewards_mod.RewardRecord.model_rebuild()
         make_reward_record = rewards_mod.make_reward_record
 
         reward = _load_reward(EXAMPLES / "agentic" / "coding")
@@ -427,6 +431,8 @@ class RewardRecordRewardDeterminismTest(unittest.TestCase):
         """Shopping reward with real RewardRecord must be stable."""
 
         rewards_mod = _load_rewards_module()
+        # Ensure RewardRecord is fully defined for Pydantic v2
+        rewards_mod.RewardRecord.model_rebuild()
         make_reward_record = rewards_mod.make_reward_record
 
         reward = _load_reward(EXAMPLES / "agentic" / "shopping")
