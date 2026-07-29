@@ -39,6 +39,9 @@ def _load_rewards_module():
     assert spec is not None and spec.loader is not None
     _REWARDS_MODULE = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(_REWARDS_MODULE)
+    # Pydantic needs model_rebuild() when RewardRecord uses `Any` type
+    # and is loaded via importlib (not normal import).
+    _REWARDS_MODULE.RewardRecord.model_rebuild()
     return _REWARDS_MODULE
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
