@@ -37,10 +37,15 @@ def _load_rewards_module():
     path = REPO_ROOT / "areno" / "api" / "rewards.py"
     spec = importlib.util.spec_from_file_location("_det_rewards", path)
     assert spec is not None and spec.loader is not None
+    # Pre-inject 'Any' into the module namespace so that model_rebuild()
+    # can resolve the RewardRecord field annotation when using
+    # `from __future__ import annotations` (PEP 563 deferred evaluation).
+    from typing import Any
+    namespace = {"Any": Any}
     _REWARDS_MODULE = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(_REWARDS_MODULE)
-    # Pydantic needs model_rebuild() when RewardRecord uses `Any` type
-    # and is loaded via importlib (not normal import).
+    # Now inject Any into the loaded module so model_rebuild() finds it
+    _REWARDS_MODULE.Any = Any
     _REWARDS_MODULE.RewardRecord.model_rebuild()
     return _REWARDS_MODULE
 
@@ -390,8 +395,6 @@ class RewardRecordRewardDeterminismTest(unittest.TestCase):
         """Tic-Tac-Toe tool reward with real RewardRecord must be stable."""
 
         rewards_mod = _load_rewards_module()
-        # Ensure RewardRecord is fully defined for Pydantic v2
-        rewards_mod.RewardRecord.model_rebuild()
         make_reward_record = rewards_mod.make_reward_record
 
         reward = _load_reward(EXAMPLES / "agentic" / "tictactoe")
@@ -408,8 +411,6 @@ class RewardRecordRewardDeterminismTest(unittest.TestCase):
         """Coding reward with real RewardRecord must be stable."""
 
         rewards_mod = _load_rewards_module()
-        # Ensure RewardRecord is fully defined for Pydantic v2
-        rewards_mod.RewardRecord.model_rebuild()
         make_reward_record = rewards_mod.make_reward_record
 
         reward = _load_reward(EXAMPLES / "agentic" / "coding")
@@ -431,8 +432,6 @@ class RewardRecordRewardDeterminismTest(unittest.TestCase):
         """Shopping reward with real RewardRecord must be stable."""
 
         rewards_mod = _load_rewards_module()
-        # Ensure RewardRecord is fully defined for Pydantic v2
-        rewards_mod.RewardRecord.model_rebuild()
         make_reward_record = rewards_mod.make_reward_record
 
         reward = _load_reward(EXAMPLES / "agentic" / "shopping")
